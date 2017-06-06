@@ -181,4 +181,6 @@ class ProgressBar:
 
 
 def sharpe(pnl):
+    if pnl.std() == 0.0:
+        return 0.0
     return np.sqrt(250) * pnl.mean() / pnl.std()

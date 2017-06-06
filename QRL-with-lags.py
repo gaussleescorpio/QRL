@@ -1,15 +1,24 @@
 import pandas as pd
 import os
 import numpy as np
+np.random.seed(3221)
 pd.set_option("display.max_columns", 500)
 from sklearn import linear_model
 from matplotlib import pylab as plt
 import numba
-from backtesting import Backtest
+from backtesting import Backtest, sharpe
+from sys import platform
 
-data = pd.read_csv("/home/gauss/Downloads/fullorderbook.csv")
+SIM_DATA_LEN = 5000
+MAX_HOLDINGS = 5
+holdings = 0
 
+if platform == "linux":
+    data = pd.read_csv("/home/gauss/Downloads/fullorderbook.csv")
+if platform == "darwin":
+    data = pd.read_csv("/Users/gausslee/Downloads/fullorderbook-2.csv")
 
+data = data.iloc[0:SIM_DATA_LEN]
 def load_data(data, features=[]):
     return data[features]
 
@@ -32,7 +41,6 @@ def cut_data_to_init_states(data, cut_size = 10, state_features=[]):
 init_states, new_data = cut_data_to_init_states(data,
                                                 cut_size=10,
                                                 state_features=["b1", "a1", "bs1", "as1"])
-new_data = new_data[0:300, :]
 
 
 def comb_current_state(data_states, prev_action):
@@ -48,6 +56,7 @@ def actor(qval, epsilon=0.1):
 
 
 def take_action(action, data_states, trading_signals, time_step, window=10):
+    global holdings
     # Jump to next timestep as next state
     time_step += window + 1
     if time_step == data_states.shape[0]:
@@ -60,38 +69,56 @@ def take_action(action, data_states, trading_signals, time_step, window=10):
     if action == 0:
         trading_signals.loc[time_step] = 0
     if action == 1:
-        trading_signals.loc[time_step] = 100
+        if holdings < 0:
+            trading_signals.loc[time_step] = -holdings
+            holdings = 0
+        elif abs(holdings) < MAX_HOLDINGS:
+            holdings += 1
+            trading_signals.loc[time_step] = 1
+        else:
+            trading_signals.loc[time_step] = 0
     if action == 2:
-        trading_signals.loc[time_step] = -100
+        if holdings > 0:
+            trading_signals.loc[time_step] = -holdings
+            holdings = 0
+        elif abs(holdings) < MAX_HOLDINGS:
+            holdings -= 1
+            trading_signals.loc[time_step] = -1
+        else:
+            trading_signals.loc[time_step] = 0
     terminate_state = 0
     return next_state, time_step, trading_signals, terminate_state
 
 
 def get_reward(new_state, time_step, action, price_data, trading_signals, terminal_state, epoch,window=10):
     reward = 0.0
-    if trading_signals.iloc[time_step] < 0:
-        buy_pos = trading_signals[trading_signals > 0]
-        if not buy_pos.empty:
-            buy_pos_ind = buy_pos.index[-1]
+    # if trading_signals.iloc[time_step] < 0:
+    #     buy_pos = trading_signals[trading_signals > 0]
+    #     if not buy_pos.empty:
+    #         buy_pos_ind = buy_pos.index[-1]
 
-    bt = Backtest(price=price_data.iloc[time_step-2:time_step],
-                  signal=trading_signals.iloc[time_step-2:time_step],
+    bt = Backtest(price=price_data.iloc[0:time_step],
+                  signal=trading_signals.iloc[0:time_step],
                   signalType="shares")
     if not bt.data.empty:
-        reward = ((bt.data['price'].iloc[-1] - bt.data['price'].iloc[-2]) * bt.data['shares'].iloc[-1])
-
+        # reward = ((bt.data['price'].iloc[-1] - bt.data['price'].iloc[-2]) * bt.data['shares'].iloc[-1])
+        # reward = bt.data['pnl'].iloc[-1] - bt.data['pnl'].iloc[-2]
+        if time_step > 100:
+            reward = sharpe(bt.data["pnl"].iloc[time_step-100:time_step])
+        else:
+            reward = sharpe(bt.data["pnl"].iloc[0:time_step])
     if terminal_state == 1:
         #save a figure of the test set
         bt = Backtest(price_data, trading_signals, signalType='shares')
-        reward = bt.pnl.iloc[-1]
-        plt.figure(figsize=(3,4))
+        reward = sharpe(bt.data["pnl"])#bt.pnl.iloc[-1]
+        plt.figure(figsize=(3, 4))
         bt.plotTrades()
         plt.axvline(x=400, color='black', linestyle='--')
         plt.text(250, 400, 'training data')
         plt.text(450, 400, 'test data')
-        plt.suptitle(str(epoch))
-        plt.savefig('plt/'+str(epoch)+'.png', bbox_inches='tight', pad_inches=1, dpi=72)
-        plt.show(False)
+        plt.suptitle(str(epoch) + "reward %f" % reward )
+        plt.savefig('plt/'+str(epoch)+'.eps', format="eps", dpi=1000)
+        plt.show(True)
     return reward
 
 
@@ -103,12 +130,13 @@ input_size = window * 4 + 1
 
 tf.reset_default_graph()
 input_net = tflearn.input_data((None, input_size))
-net1 = tflearn.fully_connected(input_net, 400, activation="ReLU")
+net1 = tflearn.fully_connected(input_net, 100, activation="ReLU")
+net2 = tflearn.fully_connected(net1, 20, activation="ReLU")
 output = tflearn.fully_connected(net1, 3, activation="linear")
 
 model_config = tflearn.regression(output, learning_rate=0.01,  batch_size=1)
 
-model = tflearn.DNN(model_config, tensorboard_verbose=3,
+model = tflearn.DNN(model_config, tensorboard_verbose=0,
                     tensorboard_dir="/tmp/tflearn/")
 
 model.set_weights( net1.W, tflearn.initializations.normal( shape=net1.W.get_shape(),
@@ -119,7 +147,8 @@ model.set_weights( output.W, tflearn.initializations.normal( shape=output.W.get_
 
 
 import time
-epoches = 10
+epoches = 100
+epsilon = 0.1
 trading_signals = pd.Series(index=np.arange(len(new_data) + window ))
 for ii in range(epoches):
     status = 1
@@ -135,7 +164,7 @@ for ii in range(epoches):
             time_step += 1
             continue
         qval = model.predict(start_states.reshape(1, -1))
-        action = actor(qval, 0.1)
+        action = actor(qval, epsilon)
 
         next_state, time_step, trading_signals, terminate_state = take_action(action=action, data_states=new_data,
                                                                               trading_signals=trading_signals,
@@ -152,13 +181,15 @@ for ii in range(epoches):
             update = (reward + (gamma * maxQ))
         else:  # terminal state (means that it is the last state)
             update = reward
-        print("reward %f" % update)
         y[0][action] = update  # target output
         model.fit(start_states.reshape(1, -1), y, n_epoch=1, batch_size=1)
         time.sleep(0.01)
         start_state = next_state
         print(time_step)
+        print("reward: %f" % reward)
         if terminate_state == 1:
+            epsilon -= 1.0/(epoches*10)
+            print("final reward %f for episode %i" % (reward, ii))
             status = 0
     model.save("updatedmodel")
     print("total reward %f" % total_reward)
