@@ -103,6 +103,16 @@ class Backtest(object):
         return sharpe(pnl)  # need the diff here as sharpe works on daily returns.
 
     @property
+    def odd_sharpe(self):
+        profit = self.pnl.iloc[-1]
+        max_dd = self.pnl.cummax()
+        min_dd = self.pnl - max_dd
+        min_dd = min_dd.cummin().min()
+        if min_dd == 0:
+            return 0
+        return profit / min_dd
+
+    @property
     def pnl(self):
         '''easy access to pnl data column '''
         return self.data['pnl']
@@ -114,10 +124,11 @@ class Backtest(object):
             short entry : red triangle down
             exit : black circle
         """
+        figs, axes = plt.subplots(3, 1, sharex=True)
         l = ['price']
 
         p = self.data['price']
-        p.plot(style='x-')
+        p.plot(style='x-', subplots=True, ax=axes[0])
 
         # ---plot markers
         # this works, but I rather prefer colored markers for each day of position rather than entry-exit signals
@@ -132,21 +143,29 @@ class Backtest(object):
 
         # --- plot trades
         # colored line for long positions
-        idx = (self.data['shares'] > 0) | (self.data['shares'] > 0).shift(1)
+        idx = (self.data['shares'] > 0) #| (self.data['shares'] > 0).shift(1)
         if idx.any():
-            p[idx].plot(style='go')
+            p[idx].plot(style='go', subplots=True, ax=axes[0])
             l.append('long')
 
         # colored line for short positions
-        idx = (self.data['shares'] < 0) | (self.data['shares'] < 0).shift(1)
+        idx = (self.data['shares'] < 0) #| (self.data['shares'] < 0).shift(1)
         if idx.any():
-            p[idx].plot(style='ro')
+            p[idx].plot(style='ro', subplots=True, ax=axes[0])
             l.append('short')
 
-        plt.xlim([p.index[0], p.index[-1]])  # show full axis
+        axes[0].set_xlim([p.index[0], p.index[-1]])  # show full axis
 
-        plt.legend(l, loc='best')
-        plt.title('trades')
+        axes[0].legend(l, loc='best')
+        axes[0].set_title('trades')
+
+        pnl = self.data["pnl"]
+        pnl.plot(style='o-', subplots=True, ax=axes[1])
+        axes[1].set_title("PNL PLOT")
+
+        shares = self.data["shares"]
+        shares.plot(style='o-', subplots=True, ax=axes[2])
+        axes[2].set_title("SHARES")
 
 
 class ProgressBar:
@@ -184,3 +203,12 @@ def sharpe(pnl):
     if pnl.std() == 0.0:
         return 0.0
     return np.sqrt(250) * pnl.mean() / pnl.std()
+
+def odd_sharpe(pnl):
+    profit = pnl.iloc[-1]
+    max_dd = pnl.cummax()
+    min_dd = pnl - max_dd
+    min_dd = min_dd.cummin().min()
+    if min_dd == 0:
+        return 0
+    return profit / abs(min_dd)

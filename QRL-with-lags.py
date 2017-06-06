@@ -6,7 +6,7 @@ pd.set_option("display.max_columns", 500)
 from sklearn import linear_model
 from matplotlib import pylab as plt
 import numba
-from backtesting import Backtest, sharpe
+from backtesting import Backtest, sharpe, odd_sharpe
 from sys import platform
 
 SIM_DATA_LEN = 5000
@@ -23,11 +23,11 @@ def load_data(data, features=[]):
     return data[features]
 
 
-def cut_data_to_init_states(data, cut_size = 10, state_features=[]):
+def cut_data_to_init_states(data, cut_size=10, state_features=[]):
     res_data = None
     ref_data = data[state_features]
     # overlapping every time 9 cols
-    overlapping_size = 9
+    overlapping_size = cut_size - 1
     new_colum_size = (ref_data.shape[0] - cut_size) // (cut_size - overlapping_size) + 1
     new_width = ref_data.shape[1]
     isize = ref_data.values.itemsize
@@ -39,9 +39,8 @@ def cut_data_to_init_states(data, cut_size = 10, state_features=[]):
     return res_data[0,:], res_data
 
 init_states, new_data = cut_data_to_init_states(data,
-                                                cut_size=10,
+                                                cut_size=20,
                                                 state_features=["b1", "a1", "bs1", "as1"])
-
 
 def comb_current_state(data_states, prev_action):
     return np.hstack((data_states, prev_action))
@@ -104,35 +103,37 @@ def get_reward(new_state, time_step, action, price_data, trading_signals, termin
         # reward = ((bt.data['price'].iloc[-1] - bt.data['price'].iloc[-2]) * bt.data['shares'].iloc[-1])
         # reward = bt.data['pnl'].iloc[-1] - bt.data['pnl'].iloc[-2]
         if time_step > 100:
-            reward = sharpe(bt.data["pnl"].iloc[time_step-100:time_step])
+            reward = odd_sharpe(bt.data["pnl"].iloc[time_step-100:time_step]) - \
+                     odd_sharpe(bt.data["pnl"].iloc[time_step-100:time_step-1])
         else:
-            reward = sharpe(bt.data["pnl"].iloc[0:time_step])
+            reward = odd_sharpe(bt.data["pnl"].iloc[0:time_step]) - \
+                     odd_sharpe(bt.data["pnl"].iloc[0:time_step-1])
     if terminal_state == 1:
         #save a figure of the test set
         bt = Backtest(price_data, trading_signals, signalType='shares')
-        reward = sharpe(bt.data["pnl"])#bt.pnl.iloc[-1]
+        reward = odd_sharpe(bt.data["pnl"])#bt.pnl.iloc[-1]
         plt.figure(figsize=(3, 4))
         bt.plotTrades()
         plt.axvline(x=400, color='black', linestyle='--')
         plt.text(250, 400, 'training data')
         plt.text(450, 400, 'test data')
         plt.suptitle(str(epoch) + "reward %f" % reward )
-        plt.savefig('plt/'+str(epoch)+'.eps', format="eps", dpi=1000)
-        plt.show(True)
+        plt.savefig('plt2/'+str(epoch)+'.eps', format="eps", dpi=1000)
+        plt.close("all")
     return reward
 
 
 import tflearn
 import tensorflow as tf
 
-window = 10
+window = 20
 input_size = window * 4 + 1
 
 tf.reset_default_graph()
 input_net = tflearn.input_data((None, input_size))
-net1 = tflearn.fully_connected(input_net, 100, activation="ReLU")
-net2 = tflearn.fully_connected(net1, 20, activation="ReLU")
-output = tflearn.fully_connected(net1, 3, activation="linear")
+net1 = tflearn.fully_connected(input_net, 200, activation="leaky_ReLU")
+net2 = tflearn.fully_connected(net1, 30, activation="leaky_ReLU")
+output = tflearn.fully_connected(net2, 3, activation="linear")
 
 model_config = tflearn.regression(output, learning_rate=0.01,  batch_size=1)
 
@@ -141,6 +142,8 @@ model = tflearn.DNN(model_config, tensorboard_verbose=0,
 
 model.set_weights( net1.W, tflearn.initializations.normal( shape=net1.W.get_shape(),
                                                            stddev=1e-20) )
+# model.set_weights( net2.W, tflearn.initializations.normal( shape=net2.W.get_shape(),
+#                                                            stddev=1e-20) )
 model.set_weights( output.W, tflearn.initializations.normal( shape=output.W.get_shape(),
                                                             stddev=1e-20))
 
@@ -156,10 +159,10 @@ for ii in range(epoches):
     start_states = comb_current_state(init_states, 0)
     time_step = 0
     total_reward = 0
-    gamma = 0.1
+    gamma = 0.01
     print("starting epoch %i" % ii)
     while(status == 1):
-        if (time_step < 10):
+        if (time_step < window):
             trading_signals.loc[time_step] = 0
             time_step += 1
             continue
@@ -168,10 +171,10 @@ for ii in range(epoches):
 
         next_state, time_step, trading_signals, terminate_state = take_action(action=action, data_states=new_data,
                                                                               trading_signals=trading_signals,
-                                                                              time_step=time_step - 10)
+                                                                              time_step=time_step - window, window=window)
         reward = get_reward(next_state, time_step=time_step,
                             action=action, price_data=data["price"], trading_signals=trading_signals,
-                            terminal_state=terminate_state, epoch=ii, window=10)
+                            terminal_state=terminate_state, epoch=ii, window=window)
         total_reward += reward
         newQ = model.predict(next_state.reshape(1, -1))
         maxQ = np.max(newQ)
@@ -188,8 +191,8 @@ for ii in range(epoches):
         print(time_step)
         print("reward: %f" % reward)
         if terminate_state == 1:
-            epsilon -= 1.0/(epoches*10)
+            epsilon -= 1.0 / (epoches*10)
             print("final reward %f for episode %i" % (reward, ii))
             status = 0
-    model.save("updatedmodel")
+    model.save("updatedmodel_withodd")
     print("total reward %f" % total_reward)
