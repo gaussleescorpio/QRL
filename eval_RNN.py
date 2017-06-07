@@ -9,7 +9,7 @@ import numba
 from backtesting import Backtest, sharpe, odd_sharpe
 from sys import platform
 
-SIM_DATA_LEN = 10000
+SIM_DATA_LEN = 500
 MAX_HOLDINGS = 5
 holdings = 0
 
@@ -18,14 +18,14 @@ if platform == "linux":
 if platform == "darwin":
     data = pd.read_csv("/Users/gausslee/Downloads/fullorderbook-2.csv")
 
-data = data.iloc[SIM_DATA_LEN:2*SIM_DATA_LEN].reset_index()
+data = data.iloc[0:SIM_DATA_LEN].reset_index()
 
 
 def load_data(data, features=[]):
     return data[features]
 
 
-def cut_data_to_init_states(data, cut_size=10, state_features=[]):
+def cut_data_to_init_states(data, cut_size=10, state_features=[], flatten=True):
     res_data = None
     ref_data = data[state_features]
     # overlapping every time 9 cols
@@ -37,15 +37,18 @@ def cut_data_to_init_states(data, cut_size=10, state_features=[]):
                                                shape=(new_colum_size, cut_size, new_width),
                                                strides=(new_width*isize, new_width*isize,
                                                           isize))
-    res_data = res_data.reshape(res_data.shape[0], res_data.shape[1]*res_data.shape[2])
+    if flatten:
+        res_data = res_data.reshape(res_data.shape[0], res_data.shape[1]*res_data.shape[2])
     return res_data[0,:], res_data
 
 init_states, new_data = cut_data_to_init_states(data,
                                                 cut_size=20,
-                                                state_features=["b1", "a1", "bs1", "as1"])
+                                                state_features=["b1", "a1", "bs1", "as1"],
+                                                flatten=False)
+
 
 def comb_current_state(data_states, prev_action):
-    return np.hstack((data_states, prev_action))
+    return data_states
 
 
 def actor(qval, epsilon=0.1):
@@ -134,20 +137,17 @@ window = 20
 input_size = window * 4 + 1
 
 tf.reset_default_graph()
-input_net = tflearn.input_data((None, input_size))
-net1 = tflearn.fully_connected(input_net, 200, activation="leaky_ReLU")
-net2 = tflearn.fully_connected(net1, 30, activation="leaky_ReLU")
-output = tflearn.fully_connected(net2, 3, activation="linear")
-
-model_config = tflearn.regression(output, learning_rate=0.01,  batch_size=1)
-
-model = tflearn.DNN(model_config, tensorboard_verbose=0,
-                    tensorboard_dir="/tmp/tflearn/")
-
+input_data = tflearn.input_data(shape=[None, window, new_data.shape[-1]])
+net1 = tflearn.layers.lstm(incoming=input_data,
+                           n_units=50, activation="Leaky_Relu")
+net1 = tflearn.dropout(net1, 0.6)
+output = tflearn.layers.fully_connected(net1, n_units=3, activation="linear")
+model_config = tflearn.regression(incoming=output, loss="mean_square")
+model = tflearn.DNN(output, tensorboard_verbose=0)
 #model.load("/Users/gausslee/Documents/programming/jupytercodes/RL_model/updatedmodel")
 model.load("updatedmodel")
 
-print(model.get_weights(net2.W))
+# print(model.get_weights(net1.W))
 
 import time
 time.sleep(3)
@@ -172,7 +172,7 @@ while(status == 1):
         trading_signals.loc[time_step] = 0
         time_step += 1
         continue
-    qval = model.predict(start_states.reshape(1, -1))
+    qval = model.predict(start_states.reshape([-1, window, new_data.shape[-1]]))
     action = actor(qval, 0.0)
     print("action: %i" % action)
     next_state, time_step, trading_signals, terminate_state = take_action(action=action, data_states=new_data,

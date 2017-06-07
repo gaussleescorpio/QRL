@@ -9,7 +9,7 @@ import numba
 from backtesting import Backtest, sharpe, odd_sharpe
 from sys import platform
 
-SIM_DATA_LEN = 10000
+SIM_DATA_LEN = 5000
 MAX_HOLDINGS = 5
 holdings = 0
 
@@ -18,7 +18,7 @@ if platform == "linux":
 if platform == "darwin":
     data = pd.read_csv("/Users/gausslee/Downloads/fullorderbook-2.csv")
 
-data = data.iloc[SIM_DATA_LEN:2*SIM_DATA_LEN].reset_index()
+data = data.iloc[0:SIM_DATA_LEN]
 
 
 def load_data(data, features=[]):
@@ -63,7 +63,6 @@ def take_action(action, data_states, trading_signals, time_step, window=10):
     if time_step == data_states.shape[0]:
         terminate_state = 1
         next_state = comb_current_state(data_states[-1, :], action)
-        trading_signals.loc[time_step-1] = 0
         trading_signals.loc[time_step] = 0
         return next_state, time_step, trading_signals, terminate_state
 
@@ -123,7 +122,8 @@ def get_reward(new_state, time_step, action, price_data, trading_signals, termin
         plt.text(250, 400, 'training data')
         plt.text(450, 400, 'test data')
         plt.suptitle(str(epoch) + "reward %f" % reward )
-        plt.show()
+        plt.savefig('plt1/'+str(epoch)+'.eps', format="eps", dpi=1000)
+        plt.close("all")
     return reward
 
 
@@ -144,50 +144,72 @@ model_config = tflearn.regression(output, learning_rate=0.01,  batch_size=1)
 model = tflearn.DNN(model_config, tensorboard_verbose=0,
                     tensorboard_dir="/tmp/tflearn/")
 
-#model.load("/Users/gausslee/Documents/programming/jupytercodes/RL_model/updatedmodel")
-model.load("updatedmodel")
+model.set_weights( net1.W, tflearn.initializations.normal( shape=net1.W.get_shape(),
+                                                           stddev=1e-20) )
+# model.set_weights( net2.W, tflearn.initializations.normal( shape=net2.W.get_shape(),
+#                                                            stddev=1e-20) )
+model.set_weights( output.W, tflearn.initializations.normal( shape=output.W.get_shape(),
+                                                             stddev=1e-20))
 
-print(model.get_weights(net2.W))
+
 
 import time
-time.sleep(3)
 from collections import namedtuple
 replay_memory = []
-replay_memory_size = 10 * SIM_DATA_LEN
+replay_memory_size = 4 * SIM_DATA_LEN
 record = namedtuple("record", ["states", "actions", "update", "next_states"])
 epoches = 100
 epsilon = 0.1
 trading_signals = pd.Series(index=np.arange(len(new_data) + window ))
+for ii in range(epoches):
+    status = 1
+    terminate_state = 0
+    start_states = comb_current_state(init_states, 0)
+    time_step = 0
+    total_reward = 0
+    gamma = 0.01
+    print("starting epoch %i" % ii)
+    while(status == 1):
+        if (time_step < window):
+            trading_signals.loc[time_step] = 0
+            time_step += 1
+            continue
+        qval = model.predict(start_states.reshape(1, -1))
+        action = actor(qval, epsilon)
 
-status = 1
-terminate_state = 0
-start_states = comb_current_state(init_states, 0)
-time_step = 0
-total_reward = 0
-gamma = 0.01
-ii = 0
-print("starting epoch %i" % ii)
-while(status == 1):
-    if (time_step < window):
-        trading_signals.loc[time_step] = 0
-        time_step += 1
-        continue
-    qval = model.predict(start_states.reshape(1, -1))
-    action = actor(qval, 0.0)
-    print("action: %i" % action)
-    next_state, time_step, trading_signals, terminate_state = take_action(action=action, data_states=new_data,
-                                                                          trading_signals=trading_signals,
-                                                                          time_step=time_step - window, window=window)
-    print("trading_signals: %i" % trading_signals.iloc[time_step - 1])
-    reward = get_reward(next_state, time_step=time_step,
-                        action=action, price_data=data["price"], trading_signals=trading_signals,
-                        terminal_state=terminate_state, epoch=ii, window=window)
-    total_reward += reward
-    time.sleep(0.01)
-    start_states = next_state
-    print(time_step)
-    if terminate_state == 1:
-        epsilon -= 1.0 / (epoches*10)
-        print("final reward %f for episode %i" % (reward, ii))
-        status = 0
-print("total reward %f" % total_reward)
+        next_state, time_step, trading_signals, terminate_state = take_action(action=action, data_states=new_data,
+                                                                              trading_signals=trading_signals,
+                                                                              time_step=time_step - window, window=window)
+        reward = get_reward(next_state, time_step=time_step,
+                            action=action, price_data=data["price"], trading_signals=trading_signals,
+                            terminal_state=terminate_state, epoch=ii, window=window)
+        total_reward += reward
+        newQ = model.predict(next_state.reshape(1, -1))
+        maxQ = np.max(newQ)
+        y = np.zeros((1, 3))
+        y[:] = qval[:]
+        if terminate_state == 0:  # non-terminal state
+            update = (reward + (gamma * maxQ))
+        else:  # terminal state (means that it is the last state)
+            update = reward
+        y[0][action] = update  # target output
+
+        if len(replay_memory) > replay_memory_size:
+            replay_memory.pop(0)
+        if update != 0:
+            replay_memory.append(record(states=start_states, actions=action,
+                                    next_states=next_state, update=y))
+        #model.fit(start_states.reshape(1, -1), y, n_epoch=1, batch_size=1)
+        time.sleep(0.01)
+        start_states = next_state
+        print(time_step)
+        print("update: %f" % update)
+        if terminate_state == 1:
+            epsilon -= 1.0 / (epoches*10)
+            print("final reward %f for episode %i" % (reward, ii))
+            status = 0
+    states, actions, q_updates, next_states = map(np.array, zip(*replay_memory))
+    model.fit(states, q_updates.reshape(q_updates.shape[0], q_updates.shape[2]),
+              n_epoch=100, batch_size=int(SIM_DATA_LEN/4))
+    model.save("updatedmodel")
+    print("total reward %f" % total_reward)

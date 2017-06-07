@@ -143,6 +143,7 @@ class Backtest(object):
 
         # --- plot trades
         # colored line for long positions
+        print(self.data["shares"])
         idx = (self.data['shares'] > 0) #| (self.data['shares'] > 0).shift(1)
         if idx.any():
             p[idx].plot(style='go', subplots=True, ax=axes[0])

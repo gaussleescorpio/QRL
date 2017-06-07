@@ -139,7 +139,7 @@ net1 = tflearn.fully_connected(input_net, 200, activation="leaky_ReLU")
 net2 = tflearn.fully_connected(net1, 30, activation="leaky_ReLU")
 output = tflearn.fully_connected(net2, 3, activation="linear")
 
-model_config = tflearn.regression(output, learning_rate=0.01,  batch_size=1)
+model_config = tflearn.regression(output, learning_rate=0.01,  batch_size=1,loss="mean_sqaure")
 
 model = tflearn.DNN(model_config, tensorboard_verbose=0,
                     tensorboard_dir="/tmp/tflearn/")
@@ -191,7 +191,7 @@ for ii in range(epoches):
         y[0][action] = update  # target output
         model.fit(start_states.reshape(1, -1), y, n_epoch=1, batch_size=1)
         time.sleep(0.01)
-        start_state = next_state
+        start_states = next_state
         print(time_step)
         print("reward: %f" % reward)
         if terminate_state == 1:
