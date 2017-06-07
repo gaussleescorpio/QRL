@@ -19,6 +19,8 @@ if platform == "darwin":
     data = pd.read_csv("/Users/gausslee/Downloads/fullorderbook-2.csv")
 
 data = data.iloc[0:SIM_DATA_LEN]
+
+
 def load_data(data, features=[]):
     return data[features]
 
@@ -66,25 +68,25 @@ def take_action(action, data_states, trading_signals, time_step, window=10):
 
     next_state = comb_current_state(data_states[time_step, :], action)
     if action == 0:
-        trading_signals.loc[time_step] = 0
+        trading_signals.loc[time_step-1] = 0
     if action == 1:
         if holdings < 0:
-            trading_signals.loc[time_step] = -holdings
+            trading_signals.loc[time_step-1] = -holdings
             holdings = 0
         elif abs(holdings) < MAX_HOLDINGS:
             holdings += 1
-            trading_signals.loc[time_step] = 1
+            trading_signals.loc[time_step-1] = 1
         else:
-            trading_signals.loc[time_step] = 0
+            trading_signals.loc[time_step-1] = 0
     if action == 2:
         if holdings > 0:
-            trading_signals.loc[time_step] = -holdings
+            trading_signals.loc[time_step-1] = -holdings
             holdings = 0
         elif abs(holdings) < MAX_HOLDINGS:
             holdings -= 1
-            trading_signals.loc[time_step] = -1
+            trading_signals.loc[time_step-1] = -1
         else:
-            trading_signals.loc[time_step] = 0
+            trading_signals.loc[time_step-1] = 0
     terminate_state = 0
     return next_state, time_step, trading_signals, terminate_state
 
@@ -105,9 +107,11 @@ def get_reward(new_state, time_step, action, price_data, trading_signals, termin
         if time_step > 100:
             reward = odd_sharpe(bt.data["pnl"].iloc[time_step-100:time_step]) - \
                      odd_sharpe(bt.data["pnl"].iloc[time_step-100:time_step-1])
+            reward *= 10
         else:
             reward = odd_sharpe(bt.data["pnl"].iloc[0:time_step]) - \
                      odd_sharpe(bt.data["pnl"].iloc[0:time_step-1])
+            reward *= 10
     if terminal_state == 1:
         #save a figure of the test set
         bt = Backtest(price_data, trading_signals, signalType='shares')
@@ -118,7 +122,7 @@ def get_reward(new_state, time_step, action, price_data, trading_signals, termin
         plt.text(250, 400, 'training data')
         plt.text(450, 400, 'test data')
         plt.suptitle(str(epoch) + "reward %f" % reward )
-        plt.savefig('plt2/'+str(epoch)+'.eps', format="eps", dpi=1000)
+        plt.savefig('plt/'+str(epoch)+'.eps', format="eps", dpi=1000)
         plt.close("all")
     return reward
 
@@ -194,5 +198,5 @@ for ii in range(epoches):
             epsilon -= 1.0 / (epoches*10)
             print("final reward %f for episode %i" % (reward, ii))
             status = 0
-    model.save("updatedmodel_withodd")
+    model.save("updatedmodel")
     print("total reward %f" % total_reward)
