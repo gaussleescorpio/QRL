@@ -8,8 +8,9 @@ from matplotlib import pylab as plt
 import numba
 from backtesting import Backtest, sharpe, odd_sharpe
 from sys import platform
+from sklearn.preprocessing import StandardScaler
 
-SIM_DATA_LEN = 500
+SIM_DATA_LEN = 1000
 MAX_HOLDINGS = 5
 holdings = 0
 
@@ -18,22 +19,29 @@ if platform == "linux":
 if platform == "darwin":
     data = pd.read_csv("/Users/gausslee/Downloads/fullorderbook-2.csv")
 
-data = data.iloc[0:SIM_DATA_LEN].reset_index()
+data = data.iloc[50000:56000+SIM_DATA_LEN].reset_index()
 
 
 def load_data(data, features=[]):
     return data[features]
 
 
+def scale_data(data):
+    s = StandardScaler()
+    tr_data = s.fit_transform(data)
+    return tr_data
+
+
 def cut_data_to_init_states(data, cut_size=10, state_features=[], flatten=True):
     res_data = None
     ref_data = data[state_features]
+    ref_data = scale_data(ref_data)
     # overlapping every time 9 cols
     overlapping_size = cut_size - 1
     new_colum_size = (ref_data.shape[0] - cut_size) // (cut_size - overlapping_size) + 1
     new_width = ref_data.shape[1]
-    isize = ref_data.values.itemsize
-    res_data = np.lib.stride_tricks.as_strided(ref_data.values.copy("C"),
+    isize = ref_data.itemsize
+    res_data = np.lib.stride_tricks.as_strided(ref_data.copy("C"),
                                                shape=(new_colum_size, cut_size, new_width),
                                                strides=(new_width*isize, new_width*isize,
                                                           isize))
@@ -145,7 +153,7 @@ output = tflearn.layers.fully_connected(net1, n_units=3, activation="linear")
 model_config = tflearn.regression(incoming=output, loss="mean_square")
 model = tflearn.DNN(output, tensorboard_verbose=0)
 #model.load("/Users/gausslee/Documents/programming/jupytercodes/RL_model/updatedmodel")
-model.load("updatedmodel")
+model.load("plt/updatedmodel_49")
 
 # print(model.get_weights(net1.W))
 
@@ -175,6 +183,7 @@ while(status == 1):
     qval = model.predict(start_states.reshape([-1, window, new_data.shape[-1]]))
     action = actor(qval, 0.0)
     print("action: %i" % action)
+    print(qval)
     next_state, time_step, trading_signals, terminate_state = take_action(action=action, data_states=new_data,
                                                                           trading_signals=trading_signals,
                                                                           time_step=time_step - window, window=window)

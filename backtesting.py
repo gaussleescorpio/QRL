@@ -89,9 +89,9 @@ class Backtest(object):
         self.data['price'] = price
 
         self.data['shares'] = self.trades.reindex(self.data.index).ffill().fillna(0)
-        self.data['value'] = self.data['shares'] * self.data['price']
+        self.data['value'] = self.data['shares'].cumsum() * self.data['price']
 
-        delta = self.data['shares'].diff()  # shares bought sold
+        delta = self.data['shares']  # shares bought sold
 
         self.data['cash'] = (-delta * self.data['price']).fillna(0).cumsum() + initialCash
         self.data['pnl'] = self.data['cash'] + self.data['value'] - initialCash

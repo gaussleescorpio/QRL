@@ -1,6 +1,7 @@
 import pandas as pd
 import os
 import numpy as np
+import random
 np.random.seed(3221)
 pd.set_option("display.max_columns", 500)
 from sklearn import linear_model
@@ -8,6 +9,7 @@ from matplotlib import pylab as plt
 import numba
 from backtesting import Backtest, sharpe, odd_sharpe
 from sys import platform
+from sklearn.preprocessing import StandardScaler
 
 SIM_DATA_LEN = 5000
 MAX_HOLDINGS = 5
@@ -21,19 +23,26 @@ if platform == "darwin":
 data = data.iloc[0:SIM_DATA_LEN].reset_index()
 
 
+
 def load_data(data, features=[]):
     return data[features]
+
+def scale_data(data):
+    s = StandardScaler()
+    tr_data = s.fit_transform(data)
+    return tr_data
 
 
 def cut_data_to_init_states(data, cut_size=10, state_features=[], flatten=True):
     res_data = None
     ref_data = data[state_features]
+    ref_data = scale_data(ref_data)
     # overlapping every time 9 cols
     overlapping_size = cut_size - 1
     new_colum_size = (ref_data.shape[0] - cut_size) // (cut_size - overlapping_size) + 1
     new_width = ref_data.shape[1]
-    isize = ref_data.values.itemsize
-    res_data = np.lib.stride_tricks.as_strided(ref_data.values.copy("C"),
+    isize = ref_data.itemsize
+    res_data = np.lib.stride_tricks.as_strided(ref_data.copy("C"),
                                                shape=(new_colum_size, cut_size, new_width),
                                                strides=(new_width*isize, new_width*isize,
                                                           isize))
@@ -104,16 +113,17 @@ def get_reward(new_state, time_step, action, price_data, trading_signals, termin
                   signal=trading_signals.iloc[0:time_step],
                   signalType="shares")
     if not bt.data.empty:
-        # reward = ((bt.data['price'].iloc[-1] - bt.data['price'].iloc[-2]) * bt.data['shares'].iloc[-1])
-        # reward = bt.data['pnl'].iloc[-1] - bt.data['pnl'].iloc[-2]
-        if time_step > 100:
-            reward = odd_sharpe(bt.data["pnl"].iloc[time_step-100:time_step]) - \
-                     odd_sharpe(bt.data["pnl"].iloc[time_step-100:time_step-1])
-            reward *= 10
-        else:
-            reward = odd_sharpe(bt.data["pnl"].iloc[0:time_step]) - \
-                     odd_sharpe(bt.data["pnl"].iloc[0:time_step-1])
-            reward *= 10
+        reward = ((bt.data['price'].iloc[-1] - bt.data['price'].iloc[-2]) * bt.data['shares'].iloc[-1])
+        reward *= 10
+        #reward = bt.data['pnl'].iloc[-1] - bt.data['pnl'].iloc[-2]
+        # if time_step > 100:
+        #     reward = odd_sharpe(bt.data["pnl"].iloc[time_step-100:time_step]) - \
+        #              odd_sharpe(bt.data["pnl"].iloc[time_step-100:time_step-1])
+        #     reward *= 10
+        # else:
+        #     reward = odd_sharpe(bt.data["pnl"].iloc[0:time_step]) - \
+        #              odd_sharpe(bt.data["pnl"].iloc[0:time_step-1])
+        #     reward *= 10
     if terminal_state == 1:
         #save a figure of the test set
         bt = Backtest(price_data, trading_signals, signalType='shares')
@@ -124,7 +134,7 @@ def get_reward(new_state, time_step, action, price_data, trading_signals, termin
         plt.text(250, 400, 'training data')
         plt.text(450, 400, 'test data')
         plt.suptitle(str(epoch) + "reward %f" % reward )
-        plt.savefig('plt1/'+str(epoch)+'.eps', format="eps", dpi=1000)
+        plt.savefig('plt/'+str(epoch)+'.eps', format="eps", dpi=1000)
         plt.close("all")
     return reward
 
@@ -156,9 +166,9 @@ model = tflearn.DNN(output, tensorboard_verbose=0)
 import time
 from collections import namedtuple
 replay_memory = []
-replay_memory_size = 4 * SIM_DATA_LEN
+replay_memory_size = 12 * SIM_DATA_LEN
 record = namedtuple("record", ["states", "actions", "update", "next_states"])
-epoches = 100
+epoches = 50
 epsilon = 0.1
 trading_signals = pd.Series(index=np.arange(len(new_data) + window ))
 for ii in range(epoches):
@@ -205,11 +215,15 @@ for ii in range(epoches):
         print(time_step)
         print("update: %f" % update)
         if terminate_state == 1:
-            epsilon -= 1.0 / (epoches*10)
+            epsilon -= 1.0 / (epoches*0.1*50)
             print("final reward %f for episode %i" % (reward, ii))
             status = 0
-    states, actions, q_updates, next_states = map(np.array, zip(*replay_memory))
+    if len(replay_memory) > 4* SIM_DATA_LEN:
+        samples = random.sample(replay_memory, 4*SIM_DATA_LEN)
+    else:
+        samples = replay_memory
+    states, actions, q_updates, next_states = map(np.array, zip(*samples))
     model.fit(states, q_updates.reshape(q_updates.shape[0], q_updates.shape[2]),
               n_epoch=100, batch_size=int(SIM_DATA_LEN/4))
-    model.save("updatedmodel")
+    model.save("plt/updatedmodel_%i" % ii)
     print("total reward %f" % total_reward)
