@@ -11,7 +11,7 @@ from backtesting import Backtest, sharpe, odd_sharpe
 from sys import platform
 from sklearn.preprocessing import StandardScaler
 
-SIM_DATA_LEN = 5000
+SIM_DATA_LEN = 50000
 MAX_HOLDINGS = 5
 holdings = 0
 
@@ -74,30 +74,30 @@ def take_action(action, data_states, trading_signals, time_step, window=10):
     if time_step == data_states.shape[0]:
         terminate_state = 1
         next_state = comb_current_state(data_states[-1, :], action)
-        trading_signals.loc[time_step] = 0
+        trading_signals.iloc[time_step] = 0
         return next_state, time_step, trading_signals, terminate_state
 
     next_state = comb_current_state(data_states[time_step, :], action)
     if action == 0:
-        trading_signals.loc[time_step-1] = 0
+        trading_signals.iloc[time_step-1] = 0
     if action == 1:
         if holdings < 0:
-            trading_signals.loc[time_step-1] = -holdings
+            trading_signals.iloc[time_step-1] = -holdings
             holdings = 0
         elif abs(holdings) < MAX_HOLDINGS:
             holdings += 1
-            trading_signals.loc[time_step-1] = 1
+            trading_signals.iloc[time_step-1] = 1
         else:
-            trading_signals.loc[time_step-1] = 0
+            trading_signals.iloc[time_step-1] = 0
     if action == 2:
         if holdings > 0:
-            trading_signals.loc[time_step-1] = -holdings
+            trading_signals.iloc[time_step-1] = -holdings
             holdings = 0
         elif abs(holdings) < MAX_HOLDINGS:
             holdings -= 1
-            trading_signals.loc[time_step-1] = -1
+            trading_signals.iloc[time_step-1] = -1
         else:
-            trading_signals.loc[time_step-1] = 0
+            trading_signals.iloc[time_step-1] = 0
     terminate_state = 0
     return next_state, time_step, trading_signals, terminate_state
 
@@ -109,7 +109,7 @@ def get_reward(new_state, time_step, action, price_data, trading_signals, termin
     #     if not buy_pos.empty:
     #         buy_pos_ind = buy_pos.index[-1]
 
-    bt = Backtest(price=price_data.iloc[0:time_step],
+    bt = Backtest(price=price_data.iloc[0:time_step+1],
                   signal=trading_signals.iloc[0:time_step],
                   signalType="shares")
     if not bt.data.empty:
@@ -127,7 +127,7 @@ def get_reward(new_state, time_step, action, price_data, trading_signals, termin
     if terminal_state == 1:
         #save a figure of the test set
         bt = Backtest(price_data, trading_signals, signalType='shares')
-        reward = odd_sharpe(bt.data["pnl"])#bt.pnl.iloc[-1]
+        reward = odd_sharpe(bt.data["pnl"])*10#bt.pnl.iloc[-1]
         plt.figure(figsize=(3, 4))
         bt.plotTrades()
         plt.axvline(x=400, color='black', linestyle='--')

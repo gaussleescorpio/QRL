@@ -10,8 +10,8 @@ from backtesting import Backtest, sharpe, odd_sharpe
 from sys import platform
 from sklearn.preprocessing import StandardScaler
 
-SIM_DATA_LEN = 1000
-MAX_HOLDINGS = 5
+SIM_DATA_LEN = 2000
+MAX_HOLDINGS = 1
 holdings = 0
 
 if platform == "linux":
@@ -19,7 +19,9 @@ if platform == "linux":
 if platform == "darwin":
     data = pd.read_csv("/Users/gausslee/Downloads/fullorderbook-2.csv")
 
-data = data.iloc[50000:56000+SIM_DATA_LEN].reset_index()
+s = StandardScaler()
+scaler = s.fit(data[0:50000][["b1", "a1", "bs1", "as1"]])
+data = data.iloc[60000:65000+SIM_DATA_LEN].reset_index()
 
 
 def load_data(data, features=[]):
@@ -32,10 +34,12 @@ def scale_data(data):
     return tr_data
 
 
+
 def cut_data_to_init_states(data, cut_size=10, state_features=[], flatten=True):
+    global scaler
     res_data = None
     ref_data = data[state_features]
-    ref_data = scale_data(ref_data)
+    ref_data = scaler.transform(ref_data)
     # overlapping every time 9 cols
     overlapping_size = cut_size - 1
     new_colum_size = (ref_data.shape[0] - cut_size) // (cut_size - overlapping_size) + 1
@@ -110,20 +114,20 @@ def get_reward(new_state, time_step, action, price_data, trading_signals, termin
     #     if not buy_pos.empty:
     #         buy_pos_ind = buy_pos.index[-1]
 
-    bt = Backtest(price=price_data.iloc[0:time_step],
+    bt = Backtest(price=price_data.iloc[0:time_step+1],
                   signal=trading_signals.iloc[0:time_step],
                   signalType="shares")
     if not bt.data.empty:
-        # reward = ((bt.data['price'].iloc[-1] - bt.data['price'].iloc[-2]) * bt.data['shares'].iloc[-1])
+        reward = ((bt.data['price'].iloc[-1] - bt.data['price'].iloc[-2]) * bt.data['shares'].iloc[-1])
         # reward = bt.data['pnl'].iloc[-1] - bt.data['pnl'].iloc[-2]
-        if time_step > 100:
-            reward = odd_sharpe(bt.data["pnl"].iloc[time_step-100:time_step]) - \
-                     odd_sharpe(bt.data["pnl"].iloc[time_step-100:time_step-1])
-            reward *= 10
-        else:
-            reward = odd_sharpe(bt.data["pnl"].iloc[0:time_step]) - \
-                     odd_sharpe(bt.data["pnl"].iloc[0:time_step-1])
-            reward *= 10
+        # if time_step > 100:
+        #     reward = odd_sharpe(bt.data["pnl"].iloc[time_step-100:time_step]) - \
+        #              odd_sharpe(bt.data["pnl"].iloc[time_step-100:time_step-1])
+        #     reward *= 10
+        # else:
+        #     reward = odd_sharpe(bt.data["pnl"].iloc[0:time_step]) - \
+        #              odd_sharpe(bt.data["pnl"].iloc[0:time_step-1])
+        #     reward *= 10
     if terminal_state == 1:
         #save a figure of the test set
         bt = Backtest(price_data, trading_signals, signalType='shares')
@@ -153,7 +157,7 @@ output = tflearn.layers.fully_connected(net1, n_units=3, activation="linear")
 model_config = tflearn.regression(incoming=output, loss="mean_square")
 model = tflearn.DNN(output, tensorboard_verbose=0)
 #model.load("/Users/gausslee/Documents/programming/jupytercodes/RL_model/updatedmodel")
-model.load("plt/updatedmodel_49")
+model.load("plt/updatedmodel_8")
 
 # print(model.get_weights(net1.W))
 
@@ -175,6 +179,7 @@ total_reward = 0
 gamma = 0.01
 ii = 0
 print("starting epoch %i" % ii)
+
 while(status == 1):
     if (time_step < window):
         trading_signals.loc[time_step] = 0

@@ -95,7 +95,7 @@ class Backtest(object):
 
         self.data['cash'] = (-delta * self.data['price']).fillna(0).cumsum() + initialCash
         self.data['pnl'] = self.data['cash'] + self.data['value'] - initialCash
-
+        self.data['total_shares'] = self.data['shares'].cumsum()
     @property
     def sharpe(self):
         ''' return annualized sharpe ratio of the pnl '''
@@ -164,9 +164,9 @@ class Backtest(object):
         pnl.plot(style='o-', subplots=True, ax=axes[1])
         axes[1].set_title("PNL PLOT")
 
-        shares = self.data["shares"]
+        shares = self.data["total_shares"]
         shares.plot(style='o-', subplots=True, ax=axes[2])
-        axes[2].set_title("SHARES")
+        axes[2].set_title("TOTAL_SHARES")
 
 
 class ProgressBar:
