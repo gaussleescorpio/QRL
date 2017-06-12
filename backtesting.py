@@ -169,6 +169,124 @@ class Backtest(object):
         axes[2].set_title("TOTAL_SHARES")
 
 
+class BacktestCross(object):
+    def __init__(self, price, signal, signalType='capital', initialCash=0, roundShares=True):
+
+        # check for correct input
+        assert signalType in ['capital', 'shares'], "Wrong signal type provided, must be 'capital' or 'shares'"
+
+        # save internal settings to a dict
+        self.settings = {'signalType': signalType}
+
+        # first thing to do is to clean up the signal, removing nans and duplicate entries or exits
+        self.signal = signal.ffill().fillna(0)
+
+        # now find dates with a trade
+        tradeIdx = self.signal.diff().fillna(0) != 0  # days with trades are set to True
+        if signalType == 'shares':
+            self.trades = self.signal[tradeIdx]  # selected rows where tradeDir changes value. trades are in Shares
+        elif signalType == 'capital':
+            self.trades = (self.signal[tradeIdx] / price[tradeIdx])
+            if roundShares:
+                self.trades = self.trades.round()
+        if price.shape[1] != 3:
+            raise ValueError("Input price must be best and ask price")
+        # now create internal data structure
+        self.data = pd.DataFrame(index=price.index, columns=['a1', "b1", "price", 'shares', 'value', 'cash', 'pnl'])
+        self.data[["a1", "b1", "price"]] = price
+
+        self.data['shares'] = self.trades.reindex(self.data.index).ffill().fillna(0)
+        self.data["NetPos"] = self.data["shares"].cumsum()
+        # value calculation with best bid and ask price
+        self.data.loc[self.data["NetPos"] > 0, "value"] = self.data.loc[self.data["NetPos"]>0, "NetPos"] * \
+                                                          self.data.loc[self.data["NetPos"] > 0, "b1"]
+        self.data.loc[self.data["NetPos"] <= 0, "value"] = self.data.loc[self.data["NetPos"] <= 0, "NetPos"] * \
+                                                          self.data.loc[self.data["NetPos"] <= 0, "a1"]
+
+        delta = self.data['shares']  # shares bought sold
+
+        self.data['cash'] = (-delta * self.data['price']).fillna(0).cumsum() + initialCash
+        self.data['pnl'] = self.data['cash'] + self.data['value'] - initialCash
+
+    @property
+    def sharpe(self):
+        ''' return annualized sharpe ratio of the pnl '''
+        pnl = (self.data['pnl'].diff()).shift(-1)[self.data['shares'] != 0]  # use only days with position.
+        return sharpe(pnl)  # need the diff here as sharpe works on daily returns.
+
+    @property
+    def odd_sharpe(self):
+        """
+        A simple sharpe ratio calculation
+        :return:
+        """
+        profit = self.pnl.iloc[-1]
+        max_dd = self.pnl.cummax()
+        min_dd = self.pnl - max_dd
+        min_dd = min_dd.cummin().min()
+        if min_dd == 0:
+            return 0
+        return profit / min_dd
+
+    @property
+    def pnl(self):
+        '''easy access to pnl data column '''
+        return self.data['pnl']
+
+    def plotTrades(self):
+        """
+        visualise trades on the price chart
+            long entry : green triangle up
+            short entry : red triangle down
+            exit : black circle
+        """
+        figs, axes = plt.subplots(3, 1, sharex=True)
+        l = ['a1', 'b1']
+
+        p = self.data[['a1', 'b1']]
+        p.plot(style='x-', subplots=False, ax=axes[0])
+
+        # ---plot markers
+        # this works, but I rather prefer colored markers for each day of position rather than entry-exit signals
+        #         indices = {'g^': self.trades[self.trades > 0].index ,
+        #                    'ko':self.trades[self.trades == 0].index,
+        #                    'rv':self.trades[self.trades < 0].index}
+        #
+        #
+        #         for style, idx in indices.iteritems():
+        #             if len(idx) > 0:
+        #                 p[idx].plot(style=style)
+
+        # --- plot trades
+        # colored line for long positions
+        idx = (self.data['shares'] > 0)  # | (self.data['shares'] > 0).shift(1)
+        if idx.any():
+            p.loc[idx, "a1"].plot(style='go', subplots=True, ax=axes[0])
+            l.append('long')
+
+        # colored line for short positions
+        idx = (self.data['shares'] < 0)  # | (self.data['shares'] < 0).shift(1)
+        if idx.any():
+            p.loc[idx, 'b1'].plot(style='ro', subplots=True, ax=axes[0])
+            l.append('short')
+
+        axes[0].set_xlim([p.index[0], p.index[-1]])  # show full axis
+
+        axes[0].legend(l, loc='best')
+        axes[0].set_title('trades')
+
+        pnl = self.data["pnl"]
+        pnl.plot(style='o-', subplots=True, ax=axes[1])
+        axes[1].set_title("PNL PLOT")
+
+        shares = self.data["NetPos"]
+        shares.plot(style='o-', subplots=True, ax=axes[2])
+        axes[2].set_title("NetPos")
+
+
+
+
+
 class ProgressBar:
     def __init__(self, iterations):
         self.iterations = iterations
