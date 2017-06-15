@@ -55,7 +55,7 @@ def cut_data_to_init_states(data, cut_size=10, state_features=[], flatten=True, 
     return res_data[0,:], res_data
 
 init_states, new_data = cut_data_to_init_states(data,
-                                                cut_size=50,
+                                                cut_size=20,
                                                 state_features=["b1", "a1", "bs1", "as1", "volume"],
                                                 flatten=False)
 
@@ -114,14 +114,11 @@ def get_reward(new_state, time_step, action, price_data, trading_signals, termin
     #         buy_pos_ind = buy_pos.index[-1]
 
     bt = BacktestCross(price=price_data.iloc[0:time_step+10],
-                  signal=trading_signals.iloc[0:time_step],
+                  signal=trading_signals.iloc[0:time_step+10],
                   signalType="shares")
-    if not bt.data.empty:
-        if bt.data["shares"].iloc[-1] > 0:
-            reward = ((bt.data['b1'].iloc[-1] - bt.data['a1'].iloc[-10]) * bt.data['shares'].iloc[-1])
-        else:
-            reward = ((bt.data['a1'].iloc[-1] - bt.data['b1'].iloc[-10]) * bt.data['shares'].iloc[-1])
-        reward *= 10
+
+    reward = odd_sharpe(bt.data["pnl"].iloc[0:-1]) - odd_sharpe(bt.data["pnl"].iloc[0:-10])
+    reward = reward*10
     if terminal_state == 1:
         #save a figure of the test set
         bt = BacktestCross(price_data, trading_signals, signalType='shares')
@@ -132,7 +129,7 @@ def get_reward(new_state, time_step, action, price_data, trading_signals, termin
         plt.text(250, 400, 'training data')
         plt.text(450, 400, 'test data')
         plt.suptitle(str(epoch) + "reward %f" % reward )
-        plt.savefig('plt3/'+str(epoch)+'.eps', format="eps", dpi=1000)
+        plt.savefig('plt4/'+str(epoch)+'.eps', format="eps", dpi=1000)
         plt.close("all")
     return reward
 
@@ -140,13 +137,13 @@ def get_reward(new_state, time_step, action, price_data, trading_signals, termin
 import tflearn
 import tensorflow as tf
 
-window = 50
+window = 20
 input_size = window * 4 + 1
 
 tf.reset_default_graph()
 input_data = tflearn.input_data(shape=[None, window, new_data.shape[-1]])
 net1 = tflearn.layers.lstm(incoming=input_data,
-                           n_units=100, activation="Leaky_Relu")
+                           n_units=50, activation="Leaky_Relu")
 net1 = tflearn.layers.batch_normalization(net1)
 net1 = tflearn.dropout(net1, 0.6)
 tflearn.add_weights_regularizer(net1)
@@ -225,5 +222,5 @@ for ii in range(epoches):
     states, actions, q_updates, next_states = map(np.array, zip(*samples))
     model.fit(states, q_updates.reshape(q_updates.shape[0], q_updates.shape[2]),
               n_epoch=100, batch_size=int(SIM_DATA_LEN/4))
-    model.save("plt3/updatedmodel_%i" % ii)
+    model.save("plt4/updatedmodel_%i" % ii)
     print("total reward %f" % total_reward)
