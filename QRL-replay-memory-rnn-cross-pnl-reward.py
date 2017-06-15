@@ -171,7 +171,6 @@ record = namedtuple("record", ["states", "actions", "update", "next_states"])
 epoches = 50
 epsilon = 0.1
 trading_signals = pd.Series(index=np.arange(len(new_data) + window ))
-trading_signals.fillna(0, inplace=True)
 for ii in range(epoches):
     status = 1
     terminate_state = 0

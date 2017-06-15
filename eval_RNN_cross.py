@@ -10,7 +10,7 @@ from backtesting import Backtest, BacktestCross,sharpe, odd_sharpe
 from sys import platform
 from sklearn.preprocessing import StandardScaler
 
-SIM_DATA_LEN = 30000
+SIM_DATA_LEN = 10000
 MAX_HOLDINGS = 5
 holdings = 0
 
@@ -19,26 +19,23 @@ if platform == "linux":
 if platform == "darwin":
     data = pd.read_csv("/Users/gausslee/Downloads/fullorderbook-2.csv")
 
-s = StandardScaler()
-scaler = s.fit(data[5000:5000][["b1", "a1", "bs1", "as1", "volume"]])
-data = data.iloc[5000:5000+SIM_DATA_LEN].reset_index()
+data = data.iloc[0:SIM_DATA_LEN].reset_index()
 
 
 def load_data(data, features=[]):
     return data[features]
 
 
-def scale_data(data):
-    s = StandardScaler()
-    tr_data = s.fit_transform(data)
-    return tr_data
+# def scale_data(data):
+#     s = StandardScaler()
+#     tr_data = s.fit_transform(data)
+#     return tr_data
 
 
-def cut_data_to_init_states(data, cut_size=10, state_features=[], flatten=True):
+def cut_data_to_init_states(data, cut_size=10, state_features=[], flatten=True, normalize_within_window=True):
     global scaler
     res_data = None
-    ref_data = data[state_features]
-    ref_data = scaler.transform(ref_data)
+    ref_data = data[state_features].values
     # overlapping every time 9 cols
     overlapping_size = cut_size - 1
     new_colum_size = (ref_data.shape[0] - cut_size) // (cut_size - overlapping_size) + 1
@@ -48,6 +45,10 @@ def cut_data_to_init_states(data, cut_size=10, state_features=[], flatten=True):
                                                shape=(new_colum_size, cut_size, new_width),
                                                strides=(new_width*isize, new_width*isize,
                                                           isize))
+    if normalize_within_window:
+        res_std = np.std(res_data, axis=1, keepdims=True)
+        res_mean = np.mean(res_data, axis=1, keepdims=True)
+        res_data = (res_data - res_mean)/ (res_std + 1e-6)
     if flatten:
         res_data = res_data.reshape(res_data.shape[0], res_data.shape[1]*res_data.shape[2])
     return res_data[0,:], res_data
@@ -85,6 +86,7 @@ def take_action(action, data_states, trading_signals, time_step, window=10):
     if action == 0:
         trading_signals.loc[time_step-1] = 0
     if action == 1:
+        print("................................++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
         if holdings < 0:
             trading_signals.loc[time_step-1] = -holdings
             holdings = 0
@@ -94,6 +96,7 @@ def take_action(action, data_states, trading_signals, time_step, window=10):
         else:
             trading_signals.loc[time_step-1] = 0
     if action == 2:
+        print("................................--------------------------------------------------------------------------------")
         if holdings > 0:
             trading_signals.loc[time_step-1] = -holdings
             holdings = 0
@@ -155,12 +158,14 @@ tf.reset_default_graph()
 input_data = tflearn.input_data(shape=[None, window, new_data.shape[-1]])
 net1 = tflearn.layers.lstm(incoming=input_data,
                            n_units=50, activation="Leaky_Relu")
+net1 = tflearn.layers.batch_normalization(net1)
 net1 = tflearn.dropout(net1, 0.6)
+tflearn.add_weights_regularizer(net1)
 output = tflearn.layers.fully_connected(net1, n_units=3, activation="linear")
 model_config = tflearn.regression(incoming=output, loss="mean_square")
 model = tflearn.DNN(output, tensorboard_verbose=0)
 #model.load("/Users/gausslee/Documents/programming/jupytercodes/RL_model/updatedmodel")
-model.load("plt1/updatedmodel_49")
+model.load("plt2/updatedmodel_22")
 
 # print(model.get_weights(net1.W))
 
