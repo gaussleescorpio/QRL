@@ -170,7 +170,7 @@ class Backtest(object):
 
 
 class BacktestCross(object):
-    def __init__(self, price, signal, signalType='capital', initialCash=0, roundShares=True):
+    def __init__(self, price, signal, signalType='capital', initialCash=0, roundShares=True, comission=0.0):
 
         # check for correct input
         assert signalType in ['capital', 'shares'], "Wrong signal type provided, must be 'capital' or 'shares'"
@@ -201,11 +201,12 @@ class BacktestCross(object):
         self.data.loc[self.data["NetPos"] > 0, "value"] = self.data.loc[self.data["NetPos"]>0, "NetPos"] * \
                                                           self.data.loc[self.data["NetPos"] > 0, "b1"]
         self.data.loc[self.data["NetPos"] <= 0, "value"] = self.data.loc[self.data["NetPos"] <= 0, "NetPos"] * \
-                                                          self.data.loc[self.data["NetPos"] <= 0, "a1"]
+                                                           self.data.loc[self.data["NetPos"] <= 0, "a1"]
 
         delta = self.data['shares']  # shares bought sold
 
-        self.data['cash'] = (-delta * self.data['price']).fillna(0).cumsum() + initialCash
+        self.data['cash'] = (-delta * (self.data['price'] +
+                                       np.sign(delta) * comission)).fillna(0).cumsum() + initialCash
         self.data['pnl'] = self.data['cash'] + self.data['value'] - initialCash
 
     @property

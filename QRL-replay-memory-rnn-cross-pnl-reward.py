@@ -16,7 +16,7 @@ MAX_HOLDINGS = 5
 holdings = 0
 
 if platform == "linux":
-    data = pd.read_csv("/home/gauss/Downloads/fullorderbook.csv")
+    data = pd.read_csv("/home/gauss/Downloads/test_data/RB1709-20170606-D.tick")
 if platform == "darwin":
     data = pd.read_csv("/Users/gausslee/Downloads/fullorderbook-2.csv")
 
@@ -55,8 +55,8 @@ def cut_data_to_init_states(data, cut_size=10, state_features=[], flatten=True, 
     return res_data[0,:], res_data
 
 init_states, new_data = cut_data_to_init_states(data,
-                                                cut_size=20,
-                                                state_features=["b1", "a1", "bs1", "as1", "volume"],
+                                                cut_size=30,
+                                                state_features=["bb1", "ba1", "bbz1", "baz1", "volume"],
                                                 flatten=False)
 
 def comb_current_state(data_states, prev_action):
@@ -115,13 +115,13 @@ def get_reward(new_state, time_step, action, price_data, trading_signals, termin
 
     bt = BacktestCross(price=price_data.iloc[0:time_step+10],
                   signal=trading_signals.iloc[0:time_step+10],
-                  signalType="shares")
+                  signalType="shares", comission=0.3)
 
     reward = odd_sharpe(bt.data["pnl"].iloc[0:-1]) - odd_sharpe(bt.data["pnl"].iloc[0:-10])
     reward = reward*10
     if terminal_state == 1:
         #save a figure of the test set
-        bt = BacktestCross(price_data, trading_signals, signalType='shares')
+        bt = BacktestCross(price_data, trading_signals, signalType='shares', comission=0.3)
         reward = odd_sharpe(bt.data["pnl"])*10#bt.pnl.iloc[-1]
         plt.figure(figsize=(3, 4))
         bt.plotTrades()
@@ -129,7 +129,7 @@ def get_reward(new_state, time_step, action, price_data, trading_signals, termin
         plt.text(250, 400, 'training data')
         plt.text(450, 400, 'test data')
         plt.suptitle(str(epoch) + "reward %f" % reward )
-        plt.savefig('plt4/'+str(epoch)+'.eps', format="eps", dpi=1000)
+        plt.savefig('ru1709/'+str(epoch)+'.eps', format="eps", dpi=1000)
         plt.close("all")
     return reward
 
@@ -137,8 +137,8 @@ def get_reward(new_state, time_step, action, price_data, trading_signals, termin
 import tflearn
 import tensorflow as tf
 
-window = 20
-input_size = window * 4 + 1
+window = 30
+# input_size = window * 4 + 1
 
 tf.reset_default_graph()
 input_data = tflearn.input_data(shape=[None, window, new_data.shape[-1]])
@@ -188,7 +188,7 @@ for ii in range(epoches):
                                                                               trading_signals=trading_signals,
                                                                               time_step=time_step - window, window=window)
         reward = get_reward(next_state, time_step=time_step,
-                            action=action, price_data=data[["a1", "b1", "price"]], trading_signals=trading_signals,
+                            action=action, price_data=data[["ba1", "bb1", "lastPrice"]], trading_signals=trading_signals,
                             terminal_state=terminate_state, epoch=ii, window=window)
         total_reward += reward
         newQ = model.predict(next_state.reshape([-1, next_state.shape[0],
@@ -222,5 +222,5 @@ for ii in range(epoches):
     states, actions, q_updates, next_states = map(np.array, zip(*samples))
     model.fit(states, q_updates.reshape(q_updates.shape[0], q_updates.shape[2]),
               n_epoch=100, batch_size=int(SIM_DATA_LEN/4))
-    model.save("plt4/updatedmodel_%i" % ii)
+    model.save("ru1709/updatedmodel_%i" % ii)
     print("total reward %f" % total_reward)

@@ -10,12 +10,12 @@ from backtesting import Backtest, BacktestCross,sharpe, odd_sharpe
 from sys import platform
 from sklearn.preprocessing import StandardScaler
 
-SIM_DATA_LEN = 10000
-MAX_HOLDINGS = 5
+SIM_DATA_LEN = 5000
+MAX_HOLDINGS = 1
 holdings = 0
 
 if platform == "linux":
-    data = pd.read_csv("/home/gauss/Downloads/fullorderbook.csv")
+    data = pd.read_csv("/home/gauss/Downloads/test_data/RU1709-20170525-D.tick")
 if platform == "darwin":
     data = pd.read_csv("/Users/gausslee/Downloads/fullorderbook-2.csv")
 
@@ -54,8 +54,8 @@ def cut_data_to_init_states(data, cut_size=10, state_features=[], flatten=True, 
     return res_data[0,:], res_data
 
 init_states, new_data = cut_data_to_init_states(data,
-                                                cut_size=20,
-                                                state_features=["b1", "a1", "bs1", "as1", "volume"],
+                                                cut_size=30,
+                                                state_features=["ba1", "bb1", "bbz1", "baz1", "volume"],
                                                 flatten=False)
 
 
@@ -136,14 +136,14 @@ def get_reward(new_state, time_step, action, price_data, trading_signals, termin
         #     reward *= 10
     if terminal_state == 1:
         #save a figure of the test set
-        bt = BacktestCross(price_data, trading_signals, signalType='shares')
+        bt = BacktestCross(price_data, trading_signals, signalType='shares', comission=3)
         reward = odd_sharpe(bt.data["pnl"])#bt.pnl.iloc[-1]
         plt.figure(figsize=(3, 4))
         bt.plotTrades()
         plt.axvline(x=400, color='black', linestyle='--')
         plt.text(250, 400, 'training data')
         plt.text(450, 400, 'test data')
-        plt.suptitle(str(epoch) + "reward %f" % reward )
+        plt.suptitle( str(epoch) + "reward %f" % reward )
         plt.show()
     return reward
 
@@ -151,7 +151,7 @@ def get_reward(new_state, time_step, action, price_data, trading_signals, termin
 import tflearn
 import tensorflow as tf
 
-window = 20
+window = 30
 input_size = window * 4 + 1
 
 tf.reset_default_graph()
@@ -165,7 +165,7 @@ output = tflearn.layers.fully_connected(net1, n_units=3, activation="linear")
 model_config = tflearn.regression(incoming=output, loss="mean_square")
 model = tflearn.DNN(output, tensorboard_verbose=0)
 #model.load("/Users/gausslee/Documents/programming/jupytercodes/RL_model/updatedmodel")
-model.load("plt2/updatedmodel_22")
+model.load("updatedmodel_6")
 
 # print(model.get_weights(net1.W))
 
@@ -202,7 +202,7 @@ while(status == 1):
                                                                           time_step=time_step - window, window=window)
     print("trading_signals: %i" % trading_signals.iloc[time_step - 1])
     reward = get_reward(next_state, time_step=time_step,
-                        action=action, price_data=data[["a1", "b1", "price"]], trading_signals=trading_signals,
+                        action=action, price_data=data[["ba1", "bb1", "lastPrice"]], trading_signals=trading_signals,
                         terminal_state=terminate_state, epoch=ii, window=window)
     total_reward += reward
     time.sleep(0.01)
