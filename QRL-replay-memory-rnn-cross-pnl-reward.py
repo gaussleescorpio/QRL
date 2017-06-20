@@ -18,7 +18,7 @@ holdings = 0
 if platform == "linux":
     data = pd.read_csv("/home/gauss/Downloads/test_data/RB1709-20170606-D.tick")
 if platform == "darwin":
-    data = pd.read_csv("/Users/gausslee/Downloads/fullorderbook-2.csv")
+    data = pd.read_csv("/Users/gausslee/Downloads/RB1709-20170606-D.tick")
 
 data = data.iloc[0:SIM_DATA_LEN].reset_index()
 
@@ -102,6 +102,7 @@ def take_action(action, data_states, trading_signals, time_step, window=10):
             trading_signals.iloc[time_step-1] = -1
         else:
             trading_signals.iloc[time_step-1] = 0
+
     terminate_state = 0
     return next_state, time_step, trading_signals, terminate_state
 
@@ -129,7 +130,7 @@ def get_reward(new_state, time_step, action, price_data, trading_signals, termin
         plt.text(250, 400, 'training data')
         plt.text(450, 400, 'test data')
         plt.suptitle(str(epoch) + "reward %f" % reward )
-        plt.savefig('ru1709/'+str(epoch)+'.eps', format="eps", dpi=1000)
+        plt.savefig('plt1/'+str(epoch)+'.eps', format="eps", dpi=1000)
         plt.close("all")
     return reward
 
@@ -168,6 +169,7 @@ record = namedtuple("record", ["states", "actions", "update", "next_states"])
 epoches = 50
 epsilon = 0.1
 trading_signals = pd.Series(index=np.arange(len(new_data) + window ))
+trading_signals.fillna(0, inplace=True)
 for ii in range(epoches):
     status = 1
     terminate_state = 0
@@ -222,5 +224,5 @@ for ii in range(epoches):
     states, actions, q_updates, next_states = map(np.array, zip(*samples))
     model.fit(states, q_updates.reshape(q_updates.shape[0], q_updates.shape[2]),
               n_epoch=100, batch_size=int(SIM_DATA_LEN/4))
-    model.save("ru1709/updatedmodel_%i" % ii)
+    model.save("plt1/updatedmodel_%i" % ii)
     print("total reward %f" % total_reward)
