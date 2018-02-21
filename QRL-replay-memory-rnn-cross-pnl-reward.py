@@ -11,14 +11,14 @@ from backtesting import Backtest, BacktestCross, sharpe, odd_sharpe
 from sys import platform
 from sklearn.preprocessing import StandardScaler
 
-SIM_DATA_LEN = 10000
+SIM_DATA_LEN = 2000
 MAX_HOLDINGS = 5
 holdings = 0
 
 if platform == "linux":
     data = pd.read_csv("/home/gauss/Downloads/test_data/RB1709-20170606-D.tick")
 if platform == "darwin":
-    data = pd.read_csv("/Users/gausslee/Downloads/RB1709-20170606-D.tick")
+    data = pd.read_csv("fullorderbook.csv")
 
 data = data.iloc[0:SIM_DATA_LEN].reset_index()
 
@@ -56,7 +56,7 @@ def cut_data_to_init_states(data, cut_size=10, state_features=[], flatten=True, 
 
 init_states, new_data = cut_data_to_init_states(data,
                                                 cut_size=30,
-                                                state_features=["bb1", "ba1", "bbz1", "baz1", "volume"],
+                                                state_features=["b1", "a1", "bs1", "as1", "volume"],
                                                 flatten=False)
 
 def comb_current_state(data_states, prev_action):
@@ -116,14 +116,14 @@ def get_reward(new_state, time_step, action, price_data, trading_signals, termin
 
     bt = BacktestCross(price=price_data.iloc[0:time_step+10],
                   signal=trading_signals.iloc[0:time_step+10],
-                  signalType="shares", comission=0.3)
+                  signalType="shares", comission=0.0)
 
     reward = odd_sharpe(bt.data["pnl"].iloc[0:-1]) - odd_sharpe(bt.data["pnl"].iloc[0:-10])
     reward = reward*10
     if terminal_state == 1:
         #save a figure of the test set
         bt = BacktestCross(price_data, trading_signals, signalType='shares', comission=0.3)
-        reward = odd_sharpe(bt.data["pnl"])*10#bt.pnl.iloc[-1]
+        reward = odd_sharpe(bt.data["pnl"])*10 #bt.pnl.iloc[-1]
         plt.figure(figsize=(3, 4))
         bt.plotTrades()
         plt.axvline(x=400, color='black', linestyle='--')
@@ -166,7 +166,7 @@ from collections import namedtuple
 replay_memory = []
 replay_memory_size = 12 * SIM_DATA_LEN
 record = namedtuple("record", ["states", "actions", "update", "next_states"])
-epoches = 50
+epoches = 100
 epsilon = 0.1
 trading_signals = pd.Series(index=np.arange(len(new_data) + window ))
 trading_signals.fillna(0, inplace=True)
@@ -178,6 +178,9 @@ for ii in range(epoches):
     total_reward = 0
     gamma = 0.01
     print("starting epoch %i" % ii)
+    holdings = 0
+    trading_signals = pd.Series(index=np.arange(len(new_data) + window))
+    trading_signals.fillna(0, inplace=True)
     while(status == 1):
         if (time_step < window):
             trading_signals.loc[time_step] = 0
@@ -190,7 +193,7 @@ for ii in range(epoches):
                                                                               trading_signals=trading_signals,
                                                                               time_step=time_step - window, window=window)
         reward = get_reward(next_state, time_step=time_step,
-                            action=action, price_data=data[["ba1", "bb1", "lastPrice"]], trading_signals=trading_signals,
+                            action=action, price_data=data[["a1", "b1", "price"]], trading_signals=trading_signals,
                             terminal_state=terminate_state, epoch=ii, window=window)
         total_reward += reward
         newQ = model.predict(next_state.reshape([-1, next_state.shape[0],
@@ -214,7 +217,7 @@ for ii in range(epoches):
         print(time_step)
         print("update: %f" % update)
         if terminate_state == 1:
-            epsilon -= 1.0 / (epoches*0.1*50)
+            epsilon -= 1.0 / (epoches*0.1*10)
             print("final reward %f for episode %i" % (reward, ii))
             status = 0
     if len(replay_memory) > 4* SIM_DATA_LEN:
@@ -223,6 +226,6 @@ for ii in range(epoches):
         samples = replay_memory
     states, actions, q_updates, next_states = map(np.array, zip(*samples))
     model.fit(states, q_updates.reshape(q_updates.shape[0], q_updates.shape[2]),
-              n_epoch=100, batch_size=int(SIM_DATA_LEN/4))
+              n_epoch=100, batch_size=int(SIM_DATA_LEN/1))
     model.save("plt1/updatedmodel_%i" % ii)
     print("total reward %f" % total_reward)

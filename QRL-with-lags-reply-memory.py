@@ -16,7 +16,7 @@ holdings = 0
 if platform == "linux":
     data = pd.read_csv("/home/gauss/Downloads/fullorderbook.csv")
 if platform == "darwin":
-    data = pd.read_csv("/Users/gausslee/Downloads/fullorderbook-2.csv")
+    data = pd.read_csv("fullorderbook.csv")
 
 data = data.iloc[0:SIM_DATA_LEN]
 

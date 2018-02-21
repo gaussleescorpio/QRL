@@ -182,7 +182,7 @@ class BacktestCross(object):
         self.signal = signal.ffill().fillna(0)
 
         # now find dates with a trade
-        tradeIdx = self.signal.diff().fillna(0) != 0  # days with trades are set to True
+        tradeIdx = self.signal.fillna(0) != 0  # days with trades are set to True
         if signalType == 'shares':
             self.trades = self.signal[tradeIdx]  # selected rows where tradeDir changes value. trades are in Shares
         elif signalType == 'capital':
@@ -195,8 +195,11 @@ class BacktestCross(object):
         self.data = pd.DataFrame(index=price.index, columns=['a1', "b1", "price", 'shares', 'value', 'cash', 'pnl'])
         self.data[["a1", "b1", "price"]] = price
 
-        self.data['shares'] = self.trades.reindex(self.data.index).ffill().fillna(0)
+        self.data['shares'] = self.trades.reindex(self.data.index).fillna(0)
         self.data["NetPos"] = self.data["shares"].cumsum()
+        if self.data["NetPos"].max() > 5 or self.data["NetPos"].min() < -5:
+            print(self.data["NetPos"])
+            raise ValueError("holding values are wrong")
         # value calculation with best bid and ask price
         self.data.loc[self.data["NetPos"] > 0, "value"] = self.data.loc[self.data["NetPos"]>0, "NetPos"] * \
                                                           self.data.loc[self.data["NetPos"] > 0, "b1"]

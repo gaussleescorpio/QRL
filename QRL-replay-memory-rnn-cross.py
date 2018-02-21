@@ -11,14 +11,14 @@ from backtesting import Backtest, BacktestCross, sharpe, odd_sharpe
 from sys import platform
 from sklearn.preprocessing import StandardScaler
 
-SIM_DATA_LEN = 10000
+SIM_DATA_LEN = 2000
 MAX_HOLDINGS = 5
 holdings = 0
 
 if platform == "linux":
     data = pd.read_csv("/home/gauss/Downloads/fullorderbook.csv")
 if platform == "darwin":
-    data = pd.read_csv("/Users/gausslee/Downloads/fullorderbook-2.csv")
+    data = pd.read_csv("fullorderbook.csv")
 
 data = data.iloc[0:SIM_DATA_LEN].reset_index()
 
@@ -114,14 +114,14 @@ def get_reward(new_state, time_step, action, price_data, trading_signals, termin
     #         buy_pos_ind = buy_pos.index[-1]
 
     bt = BacktestCross(price=price_data.iloc[0:time_step+10],
-                  signal=trading_signals.iloc[0:time_step],
+                  signal=trading_signals.iloc[0:time_step+10],
                   signalType="shares")
     if not bt.data.empty:
         if bt.data["shares"].iloc[-1] > 0:
             reward = ((bt.data['b1'].iloc[-1] - bt.data['a1'].iloc[-10]) * bt.data['shares'].iloc[-1])
         else:
             reward = ((bt.data['a1'].iloc[-1] - bt.data['b1'].iloc[-10]) * bt.data['shares'].iloc[-1])
-        reward *= 10
+        reward *= 1
     if terminal_state == 1:
         #save a figure of the test set
         bt = BacktestCross(price_data, trading_signals, signalType='shares')
@@ -148,9 +148,9 @@ input_data = tflearn.input_data(shape=[None, window, new_data.shape[-1]])
 net1 = tflearn.layers.lstm(incoming=input_data,
                            n_units=100, activation="Leaky_Relu")
 net1 = tflearn.layers.batch_normalization(net1)
-net1 = tflearn.dropout(net1, 0.6)
+net1 = tflearn.dropout(net1, 0.8)
 tflearn.add_weights_regularizer(net1)
-output = tflearn.layers.fully_connected(net1, n_units=3, activation="linear")
+output = tflearn.layers.fully_connected(net1, n_units=3, activation="Leaky_Relu")
 model_config = tflearn.regression(incoming=output, loss="mean_square")
 model = tflearn.DNN(output, tensorboard_verbose=0)
 
@@ -180,6 +180,9 @@ for ii in range(epoches):
     total_reward = 0
     gamma = 0.01
     print("starting epoch %i" % ii)
+    holdings = 0
+    trading_signals = pd.Series(index=np.arange(len(new_data) + window))
+    trading_signals.fillna(0, inplace=True)
     while(status == 1):
         if (time_step < window):
             trading_signals.loc[time_step] = 0
@@ -190,7 +193,8 @@ for ii in range(epoches):
 
         next_state, time_step, trading_signals, terminate_state = take_action(action=action, data_states=new_data,
                                                                               trading_signals=trading_signals,
-                                                                              time_step=time_step - window, window=window)
+                                                                              time_step=time_step - window,
+                                                                              window=window)
         reward = get_reward(next_state, time_step=time_step,
                             action=action, price_data=data[["a1", "b1", "price"]], trading_signals=trading_signals,
                             terminal_state=terminate_state, epoch=ii, window=window)
@@ -214,7 +218,7 @@ for ii in range(epoches):
         time.sleep(0.01)
         start_states = next_state
         print(time_step)
-        print("update: %f" % update)
+        print("update: %f and holdings: %f" % (update, holdings))
         if terminate_state == 1:
             epsilon -= 1.0 / (epoches*0.1*50)
             print("final reward %f for episode %i" % (reward, ii))
@@ -225,6 +229,6 @@ for ii in range(epoches):
         samples = replay_memory
     states, actions, q_updates, next_states = map(np.array, zip(*samples))
     model.fit(states, q_updates.reshape(q_updates.shape[0], q_updates.shape[2]),
-              n_epoch=100, batch_size=int(SIM_DATA_LEN/4))
+              n_epoch=100, batch_size=int(SIM_DATA_LEN/2))
     model.save("plt3/updatedmodel_%i" % ii)
     print("total reward %f" % total_reward)
